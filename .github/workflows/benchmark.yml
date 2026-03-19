@@ -40,10 +40,9 @@ jobs:
         echo "$HOME/openssl340/bin" >> $GITHUB_PATH
         echo "LD_LIBRARY_PATH=$HOME/openssl340/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
-    - name: Build liboqs 0.12.0
-      run: |
-        wget -q https://github.com/open-quantum-safe/liboqs/archive/refs/tags/0.12.0.tar.gz -O liboqs-0.12.0.tar.gz
-        tar xf liboqs-0.12.0.tar.gz
+     - name: Build liboqs 0.12.0
+       run: |
+        git clone --depth 1 --branch 0.12.0 https://github.com/open-quantum-safe/liboqs.git liboqs-0.12.0
         cd liboqs-0.12.0
         mkdir build && cd build
         cmake -GNinja \
@@ -54,10 +53,9 @@ jobs:
         ninja
         ninja install
 
-    - name: Build oqs-provider 0.8.0
-      run: |
-        wget -q https://github.com/open-quantum-safe/oqs-provider/archive/refs/tags/0.8.0.tar.gz -O oqs-provider-0.8.0.tar.gz
-        tar xf oqs-provider-0.8.0.tar.gz
+  - name: Build oqs-provider 0.8.0
+    run: |  
+        git clone --depth 1 --branch 0.8.0 https://github.com/open-quantum-safe/oqs-provider.git oqs-provider-0.8.0
         cd oqs-provider-0.8.0
         mkdir build && cd build
         cmake -GNinja \
@@ -65,7 +63,6 @@ jobs:
           -Dliboqs_DIR=$HOME/liboqs/lib/cmake/liboqs \
           ..
         ninja
-        # Copy provider to OpenSSL provider directory
         mkdir -p $HOME/openssl340/lib64/ossl-modules
         cp lib/oqsprovider.so $HOME/openssl340/lib64/ossl-modules/
 
