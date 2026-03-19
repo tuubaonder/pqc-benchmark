@@ -81,28 +81,24 @@ jobs:
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
         mkdir -p $HOME/certs
+        
+        # Provider test
+        echo "=== Provider test ==="
+        $OSSL list -providers
+        
+        # ECDSA-P256
         $OSSL req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
           -keyout $HOME/certs/ecdsa_p256_key.pem \
           -out $HOME/certs/ecdsa_p256_cert.pem \
-          -days 365 -nodes -subj "/CN=test" 2>/dev/null
-        for ALG in mldsa44 mldsa65 mldsa87; do
-          $OSSL req -x509 -newkey $ALG \
-            -keyout $HOME/certs/${ALG}_key.pem \
-            -out $HOME/certs/${ALG}_cert.pem \
-            -days 365 -nodes -subj "/CN=test" 2>/dev/null
-        done
-        $OSSL req -x509 -newkey falcon512 \
-          -keyout $HOME/certs/falcon512_key.pem \
-          -out $HOME/certs/falcon512_cert.pem \
-          -days 365 -nodes -subj "/CN=test" 2>/dev/null
-        for ALG in sphincsshake128fsimple sphincsshake192fsimple; do
-          $OSSL req -x509 -newkey $ALG \
-            -keyout $HOME/certs/${ALG}_key.pem \
-            -out $HOME/certs/${ALG}_cert.pem \
-            -days 365 -nodes -subj "/CN=test" 2>/dev/null
-        done
-        echo "Certificates generated:"
-        ls -la $HOME/certs/
+          -days 365 -nodes -subj "/CN=test"
+        
+        # ML-DSA-44 sadece test
+        $OSSL req -x509 -newkey mldsa44 \
+          -keyout $HOME/certs/mldsa44_key.pem \
+          -out $HOME/certs/mldsa44_cert.pem \
+          -days 365 -nodes -subj "/CN=test"
+        
+        echo "Done"
 
     - name: Key Exchange Benchmark
       run: |
