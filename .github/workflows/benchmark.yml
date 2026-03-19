@@ -1,0 +1,240 @@
+name: PQC Benchmark (x86_64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: System info
+      run: |
+        echo "=== CPU ==="
+        lscpu | grep -E "Architecture|Model name|CPU\(s\)|Thread"
+        echo "=== RAM ==="
+        free -h
+        echo "=== OS ==="
+        cat /etc/os-release | grep -E "NAME|VERSION"
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake ninja-build \
+          libssl-dev pkg-config \
+          git wget astyle python3
+
+    - name: Build OpenSSL 3.4.0
+      run: |
+        wget -q https://github.com/openssl/openssl/releases/download/openssl-3.4.0/openssl-3.4.0.tar.gz
+        tar xf openssl-3.4.0.tar.gz
+        cd openssl-3.4.0
+        ./Configure --prefix=$HOME/openssl340 --openssldir=$HOME/openssl340 shared
+        make -j$(nproc)
+        make install_sw
+        echo "$HOME/openssl340/bin" >> $GITHUB_PATH
+        echo "LD_LIBRARY_PATH=$HOME/openssl340/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+
+    - name: Build liboqs 0.12.0
+      run: |
+        wget -q https://github.com/open-quantum-safe/liboqs/archive/refs/tags/0.12.0.tar.gz -O liboqs-0.12.0.tar.gz
+        tar xf liboqs-0.12.0.tar.gz
+        cd liboqs-0.12.0
+        mkdir build && cd build
+        cmake -GNinja \
+          -DCMAKE_INSTALL_PREFIX=$HOME/liboqs \
+          -DOQS_USE_OPENSSL=ON \
+          -DOPENSSL_ROOT_DIR=$HOME/openssl340 \
+          ..
+        ninja
+        ninja install
+
+    - name: Build oqs-provider 0.8.0
+      run: |
+        wget -q https://github.com/open-quantum-safe/oqs-provider/archive/refs/tags/0.8.0.tar.gz -O oqs-provider-0.8.0.tar.gz
+        tar xf oqs-provider-0.8.0.tar.gz
+        cd oqs-provider-0.8.0
+        mkdir build && cd build
+        cmake -GNinja \
+          -DOPENSSL_ROOT_DIR=$HOME/openssl340 \
+          -Dliboqs_DIR=$HOME/liboqs/lib/cmake/liboqs \
+          ..
+        ninja
+        # Copy provider to OpenSSL provider directory
+        mkdir -p $HOME/openssl340/lib64/ossl-modules
+        cp lib/oqsprovider.so $HOME/openssl340/lib64/ossl-modules/
+
+    - name: Configure OpenSSL for OQS
+      run: |
+        cat > $HOME/openssl340/openssl.cnf << 'EOF'
+        openssl_conf = openssl_init
+        [openssl_init]
+        providers = provider_sect
+        [provider_sect]
+        default = default_sect
+        oqsprovider = oqsprovider_sect
+        [default_sect]
+        activate = 1
+        [oqsprovider_sect]
+        activate = 1
+        EOF
+        echo "OPENSSL_CONF=$HOME/openssl340/openssl.cnf" >> $GITHUB_ENV
+
+    - name: Generate certificates
+      run: |
+        OSSL="$HOME/openssl340/bin/openssl"
+        mkdir -p $HOME/certs
+
+        # ECDSA-P256
+        $OSSL req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+          -keyout $HOME/certs/ecdsa_p256_key.pem \
+          -out $HOME/certs/ecdsa_p256_cert.pem \
+          -days 365 -nodes -subj "/CN=test" 2>/dev/null
+
+        # ML-DSA variants
+        for ALG in mldsa44 mldsa65 mldsa87; do
+          $OSSL req -x509 -newkey $ALG \
+            -keyout $HOME/certs/${ALG}_key.pem \
+            -out $HOME/certs/${ALG}_cert.pem \
+            -days 365 -nodes -subj "/CN=test" 2>/dev/null
+        done
+
+        # Falcon-512
+        $OSSL req -x509 -newkey falcon512 \
+          -keyout $HOME/certs/falcon512_key.pem \
+          -out $HOME/certs/falcon512_cert.pem \
+          -days 365 -nodes -subj "/CN=test" 2>/dev/null
+
+        # SPHINCS variants
+        for ALG in sphincsshake128fsimple sphincsshake192fsimple; do
+          $OSSL req -x509 -newkey $ALG \
+            -keyout $HOME/certs/${ALG}_key.pem \
+            -out $HOME/certs/${ALG}_cert.pem \
+            -days 365 -nodes -subj "/CN=test" 2>/dev/null
+        done
+
+        echo "Certificates generated:"
+        ls -la $HOME/certs/
+
+    - name: Key Exchange Benchmark
+      run: |
+        OSSL="$HOME/openssl340/bin/openssl"
+        ITERATIONS=1000
+        RESULTS="$HOME/key_exchange_results.csv"
+        echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
+
+        ALGORITHMS="X25519 prime256v1 secp384r1 secp521r1 mlkem512 mlkem768 mlkem1024 x25519_mlkem768 SecP256r1MLKEM768"
+
+        for ALG in $ALGORITHMS; do
+          echo "Benchmarking key exchange: $ALG"
+
+          # Start server
+          $OSSL s_server \
+            -cert $HOME/certs/ecdsa_p256_cert.pem \
+            -key $HOME/certs/ecdsa_p256_key.pem \
+            -groups $ALG \
+            -tls1_3 -port 44330 -www &
+          SERVER_PID=$!
+          sleep 1
+
+          TIMES=""
+          for i in $(seq 1 $ITERATIONS); do
+            T=$(( $(date +%s%N) ))
+            echo "" | $OSSL s_client \
+              -connect 127.0.0.1:44330 \
+              -groups $ALG \
+              -tls1_3 \
+              -quiet 2>/dev/null
+            E=$(( $(date +%s%N) ))
+            MS=$(echo "scale=3; ($E - $T) / 1000000" | bc)
+            TIMES="$TIMES $MS"
+          done
+
+          kill $SERVER_PID 2>/dev/null
+          wait $SERVER_PID 2>/dev/null
+
+          # Calculate mean and std
+          STATS=$(echo $TIMES | tr ' ' '\n' | grep -v '^$' | \
+            awk '{sum+=$1; sumsq+=$1*$1; n++} END {
+              mean=sum/n;
+              std=sqrt(sumsq/n - mean*mean);
+              printf "%.3f,%.3f", mean, std
+            }')
+          echo "$ALG,$STATS" >> $RESULTS
+          echo "  -> $ALG: $STATS ms"
+        done
+
+        echo ""
+        echo "=== KEY EXCHANGE RESULTS ==="
+        cat $RESULTS
+
+    - name: Authentication Benchmark
+      run: |
+        OSSL="$HOME/openssl340/bin/openssl"
+        ITERATIONS=1000
+        RESULTS="$HOME/auth_results.csv"
+        echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
+
+        declare -A CERT_MAP
+        CERT_MAP["ECDSA-P256"]="ecdsa_p256"
+        CERT_MAP["ML-DSA-44"]="mldsa44"
+        CERT_MAP["ML-DSA-65"]="mldsa65"
+        CERT_MAP["ML-DSA-87"]="mldsa87"
+        CERT_MAP["Falcon-512"]="falcon512"
+        CERT_MAP["SPHINCS-128f"]="sphincsshake128fsimple"
+        CERT_MAP["SPHINCS-192f"]="sphincsshake192fsimple"
+
+        for ALG in "ECDSA-P256" "ML-DSA-44" "ML-DSA-65" "ML-DSA-87" "Falcon-512" "SPHINCS-128f" "SPHINCS-192f"; do
+          PREFIX=${CERT_MAP[$ALG]}
+          echo "Benchmarking authentication: $ALG"
+
+          $OSSL s_server \
+            -cert $HOME/certs/${PREFIX}_cert.pem \
+            -key $HOME/certs/${PREFIX}_key.pem \
+            -groups X25519 \
+            -tls1_3 -port 44331 -www &
+          SERVER_PID=$!
+          sleep 1
+
+          TIMES=""
+          for i in $(seq 1 $ITERATIONS); do
+            T=$(( $(date +%s%N) ))
+            echo "" | $OSSL s_client \
+              -connect 127.0.0.1:44331 \
+              -groups X25519 \
+              -tls1_3 \
+              -quiet 2>/dev/null
+            E=$(( $(date +%s%N) ))
+            MS=$(echo "scale=3; ($E - $T) / 1000000" | bc)
+            TIMES="$TIMES $MS"
+          done
+
+          kill $SERVER_PID 2>/dev/null
+          wait $SERVER_PID 2>/dev/null
+
+          STATS=$(echo $TIMES | tr ' ' '\n' | grep -v '^$' | \
+            awk '{sum+=$1; sumsq+=$1*$1; n++} END {
+              mean=sum/n;
+              std=sqrt(sumsq/n - mean*mean);
+              printf "%.3f,%.3f", mean, std
+            }')
+          echo "$ALG,$STATS" >> $RESULTS
+          echo "  -> $ALG: $STATS ms"
+        done
+
+        echo ""
+        echo "=== AUTHENTICATION RESULTS ==="
+        cat $RESULTS
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results-x86_64
+        path: |
+          ~/key_exchange_results.csv
+          ~/auth_results.csv
