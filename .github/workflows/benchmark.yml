@@ -67,19 +67,15 @@ jobs:
 
     - name: Configure OpenSSL for OQS
       run: |
-        cat > $HOME/openssl340/openssl.cnf << 'EOF'
-        openssl_conf = openssl_init
-        [openssl_init]
-        providers = provider_sect
-        [provider_sect]
-        default = default_sect
-        oqsprovider = oqsprovider_sect
-        [default_sect]
-        activate = 1
-        [oqsprovider_sect]
-        activate = 1
-        EOF
+        PROVIDER_PATH=$(find $HOME/openssl340 -name "oqsprovider.so" 2>/dev/null | head -1)
+        echo "Provider found at: $PROVIDER_PATH"
+        PROVIDER_DIR=$(dirname $PROVIDER_PATH)
+        printf '[openssl_init]\nproviders = provider_sect\n[provider_sect]\ndefault = default_sect\noqsprovider = oqsprovider_sect\n[default_sect]\nactivate = 1\n[oqsprovider_sect]\nactivate = 1\n' > $HOME/openssl340/openssl.cnf
+        echo "openssl_conf = openssl_init" | cat - $HOME/openssl340/openssl.cnf > /tmp/ossl.cnf
+        mv /tmp/ossl.cnf $HOME/openssl340/openssl.cnf
+        cat $HOME/openssl340/openssl.cnf
         echo "OPENSSL_CONF=$HOME/openssl340/openssl.cnf" >> $GITHUB_ENV
+        echo "OPENSSL_MODULES=$PROVIDER_DIR" >> $GITHUB_ENV
 
     - name: Generate certificates
       run: |
