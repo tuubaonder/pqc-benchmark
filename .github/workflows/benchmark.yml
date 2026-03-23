@@ -104,10 +104,10 @@ jobs:
           TIMES=""
           for i in $(seq 1 $ITERATIONS); do
             T=$(date +%s%N)
-            echo "" | $OSSL s_client \
+            timeout 3 bash -c "echo Q | $OSSL s_client \
               -connect 127.0.0.1:44330 \
               -groups $ALG \
-              -tls1_3 -quiet 2>/dev/null
+              -tls1_3 -quiet 2>/dev/null" || true
             E=$(date +%s%N)
             MS=$(echo "scale=3; ($E - $T) / 1000000" | bc)
             TIMES="$TIMES $MS"
@@ -150,10 +150,10 @@ jobs:
           TIMES=""
           for i in $(seq 1 $ITERATIONS); do
             T=$(date +%s%N)
-            echo "" | $OSSL s_client \
+            timeout 3 bash -c "echo Q | $OSSL s_client \
               -connect 127.0.0.1:44331 \
               -groups X25519 \
-              -tls1_3 -quiet 2>/dev/null
+              -tls1_3 -quiet 2>/dev/null" || true
             E=$(date +%s%N)
             MS=$(echo "scale=3; ($E - $T) / 1000000" | bc)
             TIMES="$TIMES $MS"
