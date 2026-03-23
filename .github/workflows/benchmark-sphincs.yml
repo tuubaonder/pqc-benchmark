@@ -81,8 +81,8 @@ jobs:
           -keyout $HOME/certs/ecdsa_p256_key.pem \
           -out $HOME/certs/ecdsa_p256_cert.pem \
           -days 365 -nodes -subj "/CN=test"
-        for ALG in sphincsshake128fsimple sphincsshake192fsimple; do
-          $OSSL req -x509 -newkey $ALG \
+        for ALG in sphincssha2128fsimple sphincssha2192fsimple; do
+            $OSSL req -x509 -newkey $ALG \
             -keyout $HOME/certs/${ALG}_key.pem \
             -out $HOME/certs/${ALG}_cert.pem \
             -days 365 -nodes -subj "/CN=test"
@@ -96,8 +96,8 @@ jobs:
         RESULTS="$HOME/sphincs_results.csv"
         echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
         declare -A CERT_MAP
-        CERT_MAP["SPHINCS-128f"]="sphincsshake128fsimple"
-        CERT_MAP["SPHINCS-192f"]="sphincsshake192fsimple"
+        CERT_MAP["SPHINCS-128f"]="sphincssha2128fsimple"
+        CERT_MAP["SPHINCS-192f"]="sphincssha2192fsimple"
         for ALG in "SPHINCS-128f" "SPHINCS-192f"; do
           PREFIX=${CERT_MAP[$ALG]}
           echo "Benchmarking: $ALG"
