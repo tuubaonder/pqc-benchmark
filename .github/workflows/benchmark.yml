@@ -14,9 +14,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          build-essential cmake ninja-build \
-          libssl-dev pkg-config git wget astyle python3
+        sudo apt-get install -y build-essential cmake ninja-build libssl-dev pkg-config git wget astyle python3
 
     - name: Build OpenSSL 3.4.0
       run: |
@@ -34,11 +32,7 @@ jobs:
         git clone --depth 1 --branch 0.12.0 https://github.com/open-quantum-safe/liboqs.git liboqs-0.12.0
         cd liboqs-0.12.0
         mkdir build && cd build
-        cmake -GNinja \
-          -DCMAKE_INSTALL_PREFIX=$HOME/liboqs \
-          -DOQS_USE_OPENSSL=ON \
-          -DOPENSSL_ROOT_DIR=$HOME/openssl340 \
-          ..
+        cmake -GNinja -DCMAKE_INSTALL_PREFIX=$HOME/liboqs -DOQS_USE_OPENSSL=ON -DOPENSSL_ROOT_DIR=$HOME/openssl340 ..
         ninja
         ninja install
 
@@ -47,10 +41,7 @@ jobs:
         git clone --depth 1 --branch 0.8.0 https://github.com/open-quantum-safe/oqs-provider.git oqs-provider-0.8.0
         cd oqs-provider-0.8.0
         mkdir build && cd build
-        cmake -GNinja \
-          -DOPENSSL_ROOT_DIR=$HOME/openssl340 \
-          -Dliboqs_DIR=$HOME/liboqs/lib/cmake/liboqs \
-          ..
+        cmake -GNinja -DOPENSSL_ROOT_DIR=$HOME/openssl340 -Dliboqs_DIR=$HOME/liboqs/lib/cmake/liboqs ..
         ninja
         mkdir -p $HOME/openssl340/lib64/ossl-modules
         cp lib/oqsprovider.so $HOME/openssl340/lib64/ossl-modules/
@@ -59,9 +50,7 @@ jobs:
       run: |
         PROVIDER_PATH=$(find $HOME/openssl340 -name "oqsprovider.so" 2>/dev/null | head -1)
         PROVIDER_DIR=$(dirname $PROVIDER_PATH)
-        printf '[openssl_init]\nproviders = provider_sect\n[provider_sect]\ndefault = default_sect\noqsprovider = oqsprovider_sect\n[default_sect]\nactivate = 1\n[oqsprovider_sect]\nactivate = 1\n' > $HOME/openssl340/openssl.cnf
-        echo "openssl_conf = openssl_init" | cat - $HOME/openssl340/openssl.cnf > /tmp/ossl.cnf
-        mv /tmp/ossl.cnf $HOME/openssl340/openssl.cnf
+        printf 'openssl_conf = openssl_init\n[openssl_init]\nproviders = provider_sect\n[provider_sect]\ndefault = default_sect\noqsprovider = oqsprovider_sect\n[default_sect]\nactivate = 1\n[oqsprovider_sect]\nactivate = 1\n' > $HOME/openssl340/openssl.cnf
         echo "OPENSSL_CONF=$HOME/openssl340/openssl.cnf" >> $GITHUB_ENV
         echo "OPENSSL_MODULES=$PROVIDER_DIR" >> $GITHUB_ENV
 
@@ -69,76 +58,28 @@ jobs:
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
         mkdir -p $HOME/certs
-        $OSSL req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-          -keyout $HOME/certs/ecdsa_p256_key.pem \
-          -out $HOME/certs/ecdsa_p256_cert.pem \
-          -days 365 -nodes -subj "/CN=test"
+        $OSSL req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -keyout $HOME/certs/ecdsa_p256_key.pem -out $HOME/certs/ecdsa_p256_cert.pem -days 365 -nodes -subj "/CN=test"
         for ALG in mldsa44 mldsa65 mldsa87; do
-          $OSSL req -x509 -newkey $ALG \
-            -keyout $HOME/certs/${ALG}_key.pem \
-            -out $HOME/certs/${ALG}_cert.pem \
-            -days 365 -nodes -subj "/CN=test"
+          $OSSL req -x509 -newkey $ALG -keyout $HOME/certs/${ALG}_key.pem -out $HOME/certs/${ALG}_cert.pem -days 365 -nodes -subj "/CN=test"
         done
-        $OSSL req -x509 -newkey falcon512 \
-          -keyout $HOME/certs/falcon512_key.pem \
-          -out $HOME/certs/falcon512_cert.pem \
-          -days 365 -nodes -subj "/CN=test"
-        echo "Certificates generated:"
+        $OSSL req -x509 -newkey falcon512 -keyout $HOME/certs/falcon512_key.pem -out $HOME/certs/falcon512_cert.pem -days 365 -nodes -subj "/CN=test"
         ls -la $HOME/certs/
-
-    - name: Write benchmark script
-      run: |
-        cat > $HOME/run_benchmark.py << 'ENDOFSCRIPT'
-import subprocess, time, statistics, sys, os
-
-ossl = sys.argv[1]
-alg = sys.argv[2]
-port = sys.argv[3]
-results_file = sys.argv[4]
-group = sys.argv[5] if len(sys.argv) > 5 else alg
-iterations = 1000
-times = []
-
-for i in range(iterations):
-    start = time.perf_counter()
-    subprocess.run(
-        [ossl, "s_client", "-connect", f"127.0.0.1:{port}",
-         "-groups", group, "-tls1_3", "-quiet"],
-        input=b"Q\n",
-        capture_output=True,
-        timeout=5
-    )
-    end = time.perf_counter()
-    times.append((end - start) * 1000)
-
-mean = statistics.mean(times)
-std = statistics.stdev(times)
-print(f"{alg}: {mean:.3f} +/- {std:.3f} ms")
-with open(results_file, "a") as f:
-    f.write(f"{alg},{mean:.3f},{std:.3f}\n")
-ENDOFSCRIPT
 
     - name: Key Exchange Benchmark
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
         RESULTS="$HOME/key_exchange_results.csv"
         echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
-
         for ALG in X25519 prime256v1 secp384r1 secp521r1 mlkem512 mlkem768 mlkem1024 x25519_mlkem768 SecP256r1MLKEM768; do
           echo "Benchmarking: $ALG"
-          $OSSL s_server \
-            -cert $HOME/certs/ecdsa_p256_cert.pem \
-            -key $HOME/certs/ecdsa_p256_key.pem \
-            -groups $ALG \
-            -tls1_3 -port 44330 -www &
+          $OSSL s_server -cert $HOME/certs/ecdsa_p256_cert.pem -key $HOME/certs/ecdsa_p256_key.pem -groups $ALG -tls1_3 -port 44330 -www &
           SERVER_PID=$!
           sleep 2
-          python3 $HOME/run_benchmark.py $OSSL $ALG 44330 $RESULTS $ALG
+          python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL $ALG 44330 $RESULTS $ALG
           kill $SERVER_PID 2>/dev/null
           wait $SERVER_PID 2>/dev/null
           sleep 1
         done
-
         echo "=== KEY EXCHANGE RESULTS ==="
         cat $RESULTS
 
@@ -147,30 +88,22 @@ ENDOFSCRIPT
         OSSL="$HOME/openssl340/bin/openssl"
         RESULTS="$HOME/auth_results.csv"
         echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
-
         run_auth() {
           ALG=$1
           PREFIX=$2
-          echo "Benchmarking: $ALG"
-          $OSSL s_server \
-            -cert $HOME/certs/${PREFIX}_cert.pem \
-            -key $HOME/certs/${PREFIX}_key.pem \
-            -groups X25519 \
-            -tls1_3 -port 44331 -www &
+          $OSSL s_server -cert $HOME/certs/${PREFIX}_cert.pem -key $HOME/certs/${PREFIX}_key.pem -groups X25519 -tls1_3 -port 44331 -www &
           SERVER_PID=$!
           sleep 2
-          python3 $HOME/run_benchmark.py $OSSL "$ALG" 44331 $RESULTS X25519
+          python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL "$ALG" 44331 $RESULTS X25519
           kill $SERVER_PID 2>/dev/null
           wait $SERVER_PID 2>/dev/null
           sleep 1
         }
-
         run_auth "ECDSA-P256" "ecdsa_p256"
         run_auth "ML-DSA-44" "mldsa44"
         run_auth "ML-DSA-65" "mldsa65"
         run_auth "ML-DSA-87" "mldsa87"
         run_auth "Falcon-512" "falcon512"
-
         echo "=== AUTH RESULTS ==="
         cat $RESULTS
 
@@ -192,9 +125,7 @@ ENDOFSCRIPT
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          build-essential cmake ninja-build \
-          libssl-dev pkg-config git wget astyle python3
+        sudo apt-get install -y build-essential cmake ninja-build libssl-dev pkg-config git wget astyle python3
 
     - name: Build OpenSSL 3.4.0
       run: |
@@ -212,11 +143,7 @@ ENDOFSCRIPT
         git clone --depth 1 --branch 0.12.0 https://github.com/open-quantum-safe/liboqs.git liboqs-0.12.0
         cd liboqs-0.12.0
         mkdir build && cd build
-        cmake -GNinja \
-          -DCMAKE_INSTALL_PREFIX=$HOME/liboqs \
-          -DOQS_USE_OPENSSL=ON \
-          -DOPENSSL_ROOT_DIR=$HOME/openssl340 \
-          ..
+        cmake -GNinja -DCMAKE_INSTALL_PREFIX=$HOME/liboqs -DOQS_USE_OPENSSL=ON -DOPENSSL_ROOT_DIR=$HOME/openssl340 ..
         ninja
         ninja install
 
@@ -225,10 +152,7 @@ ENDOFSCRIPT
         git clone --depth 1 --branch 0.8.0 https://github.com/open-quantum-safe/oqs-provider.git oqs-provider-0.8.0
         cd oqs-provider-0.8.0
         mkdir build && cd build
-        cmake -GNinja \
-          -DOPENSSL_ROOT_DIR=$HOME/openssl340 \
-          -Dliboqs_DIR=$HOME/liboqs/lib/cmake/liboqs \
-          ..
+        cmake -GNinja -DOPENSSL_ROOT_DIR=$HOME/openssl340 -Dliboqs_DIR=$HOME/liboqs/lib/cmake/liboqs ..
         ninja
         mkdir -p $HOME/openssl340/lib64/ossl-modules
         cp lib/oqsprovider.so $HOME/openssl340/lib64/ossl-modules/
@@ -237,9 +161,7 @@ ENDOFSCRIPT
       run: |
         PROVIDER_PATH=$(find $HOME/openssl340 -name "oqsprovider.so" 2>/dev/null | head -1)
         PROVIDER_DIR=$(dirname $PROVIDER_PATH)
-        printf '[openssl_init]\nproviders = provider_sect\n[provider_sect]\ndefault = default_sect\noqsprovider = oqsprovider_sect\n[default_sect]\nactivate = 1\n[oqsprovider_sect]\nactivate = 1\n' > $HOME/openssl340/openssl.cnf
-        echo "openssl_conf = openssl_init" | cat - $HOME/openssl340/openssl.cnf > /tmp/ossl.cnf
-        mv /tmp/ossl.cnf $HOME/openssl340/openssl.cnf
+        printf 'openssl_conf = openssl_init\n[openssl_init]\nproviders = provider_sect\n[provider_sect]\ndefault = default_sect\noqsprovider = oqsprovider_sect\n[default_sect]\nactivate = 1\n[oqsprovider_sect]\nactivate = 1\n' > $HOME/openssl340/openssl.cnf
         echo "OPENSSL_CONF=$HOME/openssl340/openssl.cnf" >> $GITHUB_ENV
         echo "OPENSSL_MODULES=$PROVIDER_DIR" >> $GITHUB_ENV
 
@@ -247,77 +169,30 @@ ENDOFSCRIPT
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
         mkdir -p $HOME/certs
-        $OSSL req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-          -keyout $HOME/certs/ecdsa_p256_key.pem \
-          -out $HOME/certs/ecdsa_p256_cert.pem \
-          -days 365 -nodes -subj "/CN=test"
+        $OSSL req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -keyout $HOME/certs/ecdsa_p256_key.pem -out $HOME/certs/ecdsa_p256_cert.pem -days 365 -nodes -subj "/CN=test"
         for ALG in sphincssha2128fsimple sphincssha2192fsimple; do
-          $OSSL req -x509 -newkey $ALG \
-            -keyout $HOME/certs/${ALG}_key.pem \
-            -out $HOME/certs/${ALG}_cert.pem \
-            -days 365 -nodes -subj "/CN=test"
+          $OSSL req -x509 -newkey $ALG -keyout $HOME/certs/${ALG}_key.pem -out $HOME/certs/${ALG}_cert.pem -days 365 -nodes -subj "/CN=test"
         done
-        echo "SPHINCS certs generated:"
         ls -la $HOME/certs/
-
-    - name: Write benchmark script
-      run: |
-        cat > $HOME/run_benchmark.py << 'ENDOFSCRIPT'
-import subprocess, time, statistics, sys, os
-
-ossl = sys.argv[1]
-alg = sys.argv[2]
-port = sys.argv[3]
-results_file = sys.argv[4]
-group = sys.argv[5] if len(sys.argv) > 5 else alg
-iterations = 1000
-times = []
-
-for i in range(iterations):
-    start = time.perf_counter()
-    subprocess.run(
-        [ossl, "s_client", "-connect", f"127.0.0.1:{port}",
-         "-groups", group, "-tls1_3", "-quiet"],
-        input=b"Q\n",
-        capture_output=True,
-        timeout=10
-    )
-    end = time.perf_counter()
-    times.append((end - start) * 1000)
-
-mean = statistics.mean(times)
-std = statistics.stdev(times)
-print(f"{alg}: {mean:.3f} +/- {std:.3f} ms")
-with open(results_file, "a") as f:
-    f.write(f"{alg},{mean:.3f},{std:.3f}\n")
-ENDOFSCRIPT
 
     - name: SPHINCS Benchmark
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
         RESULTS="$HOME/sphincs_results.csv"
         echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
-
         run_sphincs() {
           ALG=$1
           PREFIX=$2
-          echo "Benchmarking: $ALG"
-          $OSSL s_server \
-            -cert $HOME/certs/${PREFIX}_cert.pem \
-            -key $HOME/certs/${PREFIX}_key.pem \
-            -groups X25519 \
-            -tls1_3 -port 44332 -www &
+          $OSSL s_server -cert $HOME/certs/${PREFIX}_cert.pem -key $HOME/certs/${PREFIX}_key.pem -groups X25519 -tls1_3 -port 44332 -www &
           SERVER_PID=$!
           sleep 2
-          python3 $HOME/run_benchmark.py $OSSL "$ALG" 44332 $RESULTS X25519
+          python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL "$ALG" 44332 $RESULTS X25519
           kill $SERVER_PID 2>/dev/null
           wait $SERVER_PID 2>/dev/null
           sleep 1
         }
-
         run_sphincs "SPHINCS-128f" "sphincssha2128fsimple"
         run_sphincs "SPHINCS-192f" "sphincssha2192fsimple"
-
         echo "=== SPHINCS RESULTS ==="
         cat $RESULTS
 
