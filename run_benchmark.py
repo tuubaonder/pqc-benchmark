@@ -8,15 +8,11 @@ group = sys.argv[5] if len(sys.argv) > 5 else alg
 iterations = 1000
 times = []
 
+cmd = f"echo '' | {ossl} s_client -connect 127.0.0.1:{port} -groups {group} -tls1_3 2>/dev/null"
+
 for i in range(iterations):
     start = time.perf_counter()
-    subprocess.run(
-        [ossl, "s_client", "-connect", f"127.0.0.1:{port}",
-         "-groups", group, "-tls1_3", "-quiet"],
-        input=b"Q\n",
-        capture_output=True,
-        timeout=10
-    )
+    subprocess.run(cmd, shell=True, timeout=10)
     end = time.perf_counter()
     times.append((end - start) * 1000)
 
