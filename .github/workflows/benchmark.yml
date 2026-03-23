@@ -76,8 +76,8 @@ jobs:
           SERVER_PID=$!
           sleep 2
           python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL $ALG 44330 $RESULTS $ALG
-          kill $SERVER_PID 2>/dev/null
-          wait $SERVER_PID 2>/dev/null
+          kill $SERVER_PID 2>/dev/null || true
+          wait $SERVER_PID 2>/dev/null || true
           sleep 1
         done
         echo "=== KEY EXCHANGE RESULTS ==="
@@ -95,8 +95,8 @@ jobs:
           SERVER_PID=$!
           sleep 2
           python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL "$ALG" 44331 $RESULTS X25519
-          kill $SERVER_PID 2>/dev/null
-          wait $SERVER_PID 2>/dev/null
+          kill $SERVER_PID 2>/dev/null || true
+          wait $SERVER_PID 2>/dev/null || true
           sleep 1
         }
         run_auth "ECDSA-P256" "ecdsa_p256"
@@ -187,8 +187,8 @@ jobs:
           SERVER_PID=$!
           sleep 2
           python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL "$ALG" 44332 $RESULTS X25519
-          kill $SERVER_PID 2>/dev/null
-          wait $SERVER_PID 2>/dev/null
+          kill $SERVER_PID 2>/dev/null || true
+          wait $SERVER_PID 2>/dev/null || true
           sleep 1
         }
         run_sphincs "SPHINCS-128f" "sphincssha2128fsimple"
