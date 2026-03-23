@@ -12,8 +12,8 @@ for i in range(iterations):
     start = time.perf_counter()
     subprocess.run(
         [ossl, "s_client", "-connect", f"127.0.0.1:{port}",
-         "-groups", group, "-tls1_3", "-quiet"],
-        input=b"Q\n",
+         "-groups", group, "-tls1_3", "-brief"],
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         timeout=10
     )
