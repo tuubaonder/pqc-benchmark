@@ -1,4 +1,4 @@
-import subprocess, time, statistics, sys, os
+import subprocess, time, statistics, sys
 
 ossl = sys.argv[1]
 alg = sys.argv[2]
