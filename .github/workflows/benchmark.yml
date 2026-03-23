@@ -70,7 +70,7 @@ jobs:
         OSSL="$HOME/openssl340/bin/openssl"
         RESULTS="$HOME/key_exchange_results.csv"
         echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
-        for ALG in X25519 prime256v1 secp384r1 secp521r1 mlkem512 mlkem768 mlkem1024 x25519_mlkem768 SecP256r1MLKEM768; do
+        for ALG in X25519 prime256v1 secp384r1 secp521r1 mlkem512 mlkem768 mlkem1024 X25519MLKEM768 SecP256r1MLKEM768; do
           echo "Benchmarking: $ALG"
           $OSSL s_server -cert $HOME/certs/ecdsa_p256_cert.pem -key $HOME/certs/ecdsa_p256_key.pem -groups $ALG -tls1_3 -port 44330 -www &
           SERVER_PID=$!
