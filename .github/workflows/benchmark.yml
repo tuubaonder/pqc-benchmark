@@ -75,7 +75,7 @@ jobs:
           $OSSL s_server -cert $HOME/certs/ecdsa_p256_cert.pem -key $HOME/certs/ecdsa_p256_key.pem -groups $ALG -tls1_3 -port 44330 -www &
           SERVER_PID=$!
           sleep 2
-          python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL $ALG 44330 $RESULTS $ALG
+          python3 $GITHUB_WORKSPACE/.github/workflows/run_benchmark.py $OSSL $ALG 44330 $RESULTS $ALG
           kill $SERVER_PID 2>/dev/null || true
           wait $SERVER_PID 2>/dev/null || true
           sleep 1
@@ -94,7 +94,7 @@ jobs:
           $OSSL s_server -cert $HOME/certs/${PREFIX}_cert.pem -key $HOME/certs/${PREFIX}_key.pem -groups X25519 -tls1_3 -port 44331 -www &
           SERVER_PID=$!
           sleep 2
-          python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL "$ALG" 44331 $RESULTS X25519
+          python3 $GITHUB_WORKSPACE/.github/workflows/run_benchmark.py $OSSL "$ALG" 44331 $RESULTS X25519
           kill $SERVER_PID 2>/dev/null || true
           wait $SERVER_PID 2>/dev/null || true
           sleep 1
@@ -186,7 +186,7 @@ jobs:
           $OSSL s_server -cert $HOME/certs/${PREFIX}_cert.pem -key $HOME/certs/${PREFIX}_key.pem -groups X25519 -tls1_3 -port 44332 -www &
           SERVER_PID=$!
           sleep 2
-          python3 $GITHUB_WORKSPACE/run_benchmark.py $OSSL "$ALG" 44332 $RESULTS X25519
+          python3 $GITHUB_WORKSPACE/.github/workflows/run_benchmark.py $OSSL "$ALG" 44332 $RESULTS X25519
           kill $SERVER_PID 2>/dev/null || true
           wait $SERVER_PID 2>/dev/null || true
           sleep 1
