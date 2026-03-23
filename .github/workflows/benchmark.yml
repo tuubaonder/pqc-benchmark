@@ -89,86 +89,115 @@ jobs:
     - name: Key Exchange Benchmark
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
-        ITERATIONS=1000
         RESULTS="$HOME/key_exchange_results.csv"
         echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
+
         for ALG in X25519 prime256v1 secp384r1 secp521r1 mlkem512 mlkem768 mlkem1024 x25519_mlkem768 SecP256r1MLKEM768; do
           echo "Benchmarking: $ALG"
+
           $OSSL s_server \
             -cert $HOME/certs/ecdsa_p256_cert.pem \
             -key $HOME/certs/ecdsa_p256_key.pem \
             -groups $ALG \
             -tls1_3 -port 44330 -www &
           SERVER_PID=$!
-          sleep 1
-          TIMES=""
-          for i in $(seq 1 $ITERATIONS); do
-            T=$(date +%s%N)
-            timeout 3 bash -c "echo Q | $OSSL s_client \
-              -connect 127.0.0.1:44330 \
-              -groups $ALG \
-              -tls1_3 -quiet 2>/dev/null" || true
-            E=$(date +%s%N)
-            MS=$(echo "scale=3; ($E - $T) / 1000000" | bc)
-            TIMES="$TIMES $MS"
-          done
+          sleep 2
+
+          python3 << PYEOF
+import subprocess, time, statistics, os
+
+ossl = "$HOME/openssl340/bin/openssl"
+alg = "$ALG"
+results_file = "$HOME/key_exchange_results.csv"
+times = []
+
+for i in range(1000):
+    start = time.perf_counter()
+    subprocess.run(
+        [ossl, "s_client", "-connect", "127.0.0.1:44330",
+         "-groups", alg, "-tls1_3", "-quiet"],
+        input=b"Q\n",
+        capture_output=True,
+        timeout=5
+    )
+    end = time.perf_counter()
+    times.append((end - start) * 1000)
+
+mean = statistics.mean(times)
+std = statistics.stdev(times)
+print(f"{alg}: {mean:.3f} ± {std:.3f} ms")
+
+with open(results_file, "a") as f:
+    f.write(f"{alg},{mean:.3f},{std:.3f}\n")
+PYEOF
+
           kill $SERVER_PID 2>/dev/null
           wait $SERVER_PID 2>/dev/null
-          STATS=$(echo $TIMES | tr ' ' '\n' | grep -v '^$' | \
-            awk '{sum+=$1; sumsq+=$1*$1; n++} END {
-              mean=sum/n;
-              std=sqrt(sumsq/n - mean*mean);
-              printf "%.3f,%.3f", mean, std}')
-          echo "$ALG,$STATS" >> $RESULTS
-          echo "  -> $ALG: $STATS ms"
+          sleep 1
         done
+
         echo "=== KEY EXCHANGE RESULTS ==="
         cat $RESULTS
 
     - name: Authentication Benchmark (no SPHINCS)
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
-        ITERATIONS=1000
         RESULTS="$HOME/auth_results.csv"
         echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
+
         declare -A CERT_MAP
         CERT_MAP["ECDSA-P256"]="ecdsa_p256"
         CERT_MAP["ML-DSA-44"]="mldsa44"
         CERT_MAP["ML-DSA-65"]="mldsa65"
         CERT_MAP["ML-DSA-87"]="mldsa87"
         CERT_MAP["Falcon-512"]="falcon512"
+
         for ALG in "ECDSA-P256" "ML-DSA-44" "ML-DSA-65" "ML-DSA-87" "Falcon-512"; do
           PREFIX=${CERT_MAP[$ALG]}
           echo "Benchmarking: $ALG"
+
           $OSSL s_server \
             -cert $HOME/certs/${PREFIX}_cert.pem \
             -key $HOME/certs/${PREFIX}_key.pem \
             -groups X25519 \
             -tls1_3 -port 44331 -www &
           SERVER_PID=$!
-          sleep 1
-          TIMES=""
-          for i in $(seq 1 $ITERATIONS); do
-            T=$(date +%s%N)
-            timeout 3 bash -c "echo Q | $OSSL s_client \
-              -connect 127.0.0.1:44331 \
-              -groups X25519 \
-              -tls1_3 -quiet 2>/dev/null" || true
-            E=$(date +%s%N)
-            MS=$(echo "scale=3; ($E - $T) / 1000000" | bc)
-            TIMES="$TIMES $MS"
-          done
+          sleep 2
+
+          python3 << PYEOF
+import subprocess, time, statistics, os
+
+ossl = "$HOME/openssl340/bin/openssl"
+alg = "$ALG"
+results_file = "$HOME/auth_results.csv"
+times = []
+
+for i in range(1000):
+    start = time.perf_counter()
+    subprocess.run(
+        [ossl, "s_client", "-connect", "127.0.0.1:44331",
+         "-groups", "X25519", "-tls1_3", "-quiet"],
+        input=b"Q\n",
+        capture_output=True,
+        timeout=5
+    )
+    end = time.perf_counter()
+    times.append((end - start) * 1000)
+
+mean = statistics.mean(times)
+std = statistics.stdev(times)
+print(f"{alg}: {mean:.3f} ± {std:.3f} ms")
+
+with open(results_file, "a") as f:
+    f.write(f"{alg},{mean:.3f},{std:.3f}\n")
+PYEOF
+
           kill $SERVER_PID 2>/dev/null
           wait $SERVER_PID 2>/dev/null
-          STATS=$(echo $TIMES | tr ' ' '\n' | grep -v '^$' | \
-            awk '{sum+=$1; sumsq+=$1*$1; n++} END {
-              mean=sum/n;
-              std=sqrt(sumsq/n - mean*mean);
-              printf "%.3f,%.3f", mean, std}')
-          echo "$ALG,$STATS" >> $RESULTS
-          echo "  -> $ALG: $STATS ms"
+          sleep 1
         done
-        echo "=== AUTH RESULTS (no SPHINCS) ==="
+
+        echo "=== AUTH RESULTS ==="
         cat $RESULTS
 
     - name: Upload results
@@ -243,19 +272,12 @@ jobs:
     - name: Generate SPHINCS certificates
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
-        
-        # Debug: provider durumu
-        echo "=== Provider list ==="
-        $OSSL list -providers
-        echo "=== Available sig algorithms ==="
-        $OSSL list -signature-algorithms | grep -i sphincs
-        
         mkdir -p $HOME/certs
         $OSSL req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
           -keyout $HOME/certs/ecdsa_p256_key.pem \
           -out $HOME/certs/ecdsa_p256_cert.pem \
           -days 365 -nodes -subj "/CN=test"
-        for ALG in sphincsshake128fsimple sphincsshake192fsimple; do
+        for ALG in sphincssha2128fsimple sphincssha2192fsimple; do
           $OSSL req -x509 -newkey $ALG \
             -keyout $HOME/certs/${ALG}_key.pem \
             -out $HOME/certs/${ALG}_cert.pem \
@@ -267,43 +289,58 @@ jobs:
     - name: SPHINCS Benchmark
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
-        ITERATIONS=1000
         RESULTS="$HOME/sphincs_results.csv"
         echo "Algorithm,Mean_ms,Std_ms" > $RESULTS
+
         declare -A CERT_MAP
-        CERT_MAP["SPHINCS-128f"]="sphincsshake128fsimple"
-        CERT_MAP["SPHINCS-192f"]="sphincsshake192fsimple"
+        CERT_MAP["SPHINCS-128f"]="sphincssha2128fsimple"
+        CERT_MAP["SPHINCS-192f"]="sphincssha2192fsimple"
+
         for ALG in "SPHINCS-128f" "SPHINCS-192f"; do
           PREFIX=${CERT_MAP[$ALG]}
           echo "Benchmarking: $ALG"
+
           $OSSL s_server \
             -cert $HOME/certs/${PREFIX}_cert.pem \
             -key $HOME/certs/${PREFIX}_key.pem \
             -groups X25519 \
             -tls1_3 -port 44332 -www &
           SERVER_PID=$!
-          sleep 1
-          TIMES=""
-          for i in $(seq 1 $ITERATIONS); do
-            T=$(date +%s%N)
-            echo "" | $OSSL s_client \
-              -connect 127.0.0.1:44332 \
-              -groups X25519 \
-              -tls1_3 -quiet 2>/dev/null
-            E=$(date +%s%N)
-            MS=$(echo "scale=3; ($E - $T) / 1000000" | bc)
-            TIMES="$TIMES $MS"
-          done
+          sleep 2
+
+          python3 << PYEOF
+import subprocess, time, statistics, os
+
+ossl = "$HOME/openssl340/bin/openssl"
+alg = "$ALG"
+results_file = "$HOME/sphincs_results.csv"
+times = []
+
+for i in range(1000):
+    start = time.perf_counter()
+    subprocess.run(
+        [ossl, "s_client", "-connect", "127.0.0.1:44332",
+         "-groups", "X25519", "-tls1_3", "-quiet"],
+        input=b"Q\n",
+        capture_output=True,
+        timeout=10
+    )
+    end = time.perf_counter()
+    times.append((end - start) * 1000)
+
+mean = statistics.mean(times)
+std = statistics.stdev(times)
+print(f"{alg}: {mean:.3f} ± {std:.3f} ms")
+
+with open(results_file, "a") as f:
+    f.write(f"{alg},{mean:.3f},{std:.3f}\n")
+PYEOF
+
           kill $SERVER_PID 2>/dev/null
           wait $SERVER_PID 2>/dev/null
-          STATS=$(echo $TIMES | tr ' ' '\n' | grep -v '^$' | \
-            awk '{sum+=$1; sumsq+=$1*$1; n++} END {
-              mean=sum/n;
-              std=sqrt(sumsq/n - mean*mean);
-              printf "%.3f,%.3f", mean, std}')
-          echo "$ALG,$STATS" >> $RESULTS
-          echo "  -> $ALG: $STATS ms"
+          sleep 1
         done
+
         echo "=== SPHINCS RESULTS ==="
         cat $RESULTS
 
