@@ -243,6 +243,13 @@ jobs:
     - name: Generate SPHINCS certificates
       run: |
         OSSL="$HOME/openssl340/bin/openssl"
+        
+        # Debug: provider durumu
+        echo "=== Provider list ==="
+        $OSSL list -providers
+        echo "=== Available sig algorithms ==="
+        $OSSL list -signature-algorithms | grep -i sphincs
+        
         mkdir -p $HOME/certs
         $OSSL req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
           -keyout $HOME/certs/ecdsa_p256_key.pem \
